@@ -47,6 +47,29 @@ PORT = 19530
 
 
 ######################### FUNCIONES #########################
+def embeddings_function(uploaded_file, db_name, collection_name):
+    archivo_pdf = './colonoscopy.txt'
+    uri_connection = 'http://localhost:19530'
+    host = 'localhost'
+    port = '19530'
+    dimension_embedding = 3072  # Example dimension
+
+    #archivo_pdf = "./tst.pdf"
+    archivo_salida = "./tst.txt"
+    st.write(f"Archivo PDF: {uploaded_file.name}")
+    st.write("Parseando PDF...")
+    parser = PDFParser(uploaded_file.name, archivo_salida)
+    parser.parse_pdf()
+    st.write("Parseo completado.")
+    st.write("Creando embeddings...")
+    processor = EmbeddingProcessor(parser.archivo_salida, uri_connection, host, port, db_name, collection_name, dimension_embedding)
+    processor.process()
+    st.write("Embeddings creados.")
+    st.write("Conexión a Milvus-VectorStore establecida.")
+    st.write("Proceso completado.")
+    #os.remove(parser.archivo_salida)
+
+
 
 def getVectorStoreMilvus(dbName, collectionName, api_key_openAI):
     ######################### CONEXIÓN A MILVUS #########################
@@ -140,32 +163,92 @@ def main():
     vector_store = getVectorStoreMilvus(BD_NAME, COLLECTION_NAME, api_key_openAI)
 
     
-    st.title("Consultar sobre los documentos")
-    st.sidebar.markdown("<H1 style='text-align: center'> Panel principal </H1>", unsafe_allow_html=True)
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    st.title("RAG PROGRAM")
+    st.sidebar.markdown("<H1 style='text-align: left'> Panel principal </H1>", unsafe_allow_html=True)
+    radioselected = st.sidebar.radio('Selecciona una opción', ['Embeddings', 'RAG', 'Configuration'])
 
-    # Display chat messages from history on app rerun
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    # Main panel
+    if radioselected == 'Embeddings':
+        with st.form(key='embeddings_form', clear_on_submit=True):
+            st.write('Embeddings')
+            uploaded_file = st.file_uploader("Elige un archivo PDF", type=["pdf"], accept_multiple_files=False)
+            if uploaded_file is not None:
+                st.write("filename:", uploaded_file.name)
+                
+            col1a, col2a = st.columns(2)
+            db_name = col1a.text_input('Enter database')
+            collection_name = col2a.text_input('Enter collection')
             
-    # React to user input
-    if prompt := st.chat_input("What is up?"):
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
+            submitted = st.form_submit_button('Create Embeddings')
+            
+            if submitted:
+                embeddings_function(uploaded_file, db_name, collection_name)
 
-        response = getAnswer(prompt, vector_store, api_key_openAI)
-        # Display assistant response in chat message container
-        with st.chat_message("assistant"):
-            st.markdown(response)
-        # Add assistant response to chat history
-        st.session_state.messages.append({"role": "assistant", "content": response})
+    if radioselected == 'RAG':
+        try:
+        # Conectar a Milvus
+            connections.connect(
+                uri="http://localhost:19530",
+                token="joaquin:chamorro",
+                alias="default"
+            )
+            st.success("Conexión exitosa a Milvus")
+        except Exception as e:
+            st.error(f"Error connecting to Milvus: {e}")
+            return
+
+        def on_change_wrapper():
+            cliente = MilvusClient(uri=URI_CONNECTION)
+            #cliente = get_client(st.session_state.db_select, URI_CONNECTION)
+            cliente.using_database(db_name=st.session_state.db_select, using="default")
+            collection = cliente.list_collections()
+            st.session_state.collections = collection
         
+        def on_change_wrapper2():
+            cliente = MilvusClient(uri=URI_CONNECTION)
+            #cliente = get_client(st.session_state.db_select, URI_CONNECTION)
+            cliente.using_database(db_name=st.session_state.my_selection, using="default")
+            collection = cliente.list_collections()
+            st.session_state.collections = collection    
+            
+        ######################### CONECTAR A MILVUS (RECUPERAR NOMBRE DB Y COLECCIONES) #########################
+        # Obtener lista de bases de datos    
+        list_databases = db.list_database()
+        list_databases.sort()
+        
+        if "db_select" not in st.session_state:
+            st.session_state.db_select = list_databases[0]
+            on_change_wrapper()
+        
+        st.session_state.db_select = st.selectbox('Select database', list_databases, key="my_selection", on_change=on_change_wrapper2)
+        
+        st.session_state.collection = st.selectbox('Select collection', st.session_state.collections)
+
+        # Initialize chat history
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        # Display chat messages from history on app rerun
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+                
+        # React to user input
+        if prompt := st.chat_input("What is up?"):
+            # Display user message in chat message container
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            # Add user message to chat history
+            st.session_state.messages.append({"role": "user", "content": prompt})
+
+            vector_store = getVectorStoreMilvus(st.session_state.db_select, st.session_state.collection, api_key_openAI)
+            response = getAnswer(prompt, vector_store, api_key_openAI)
+            # Display assistant response in chat message container
+            with st.chat_message("assistant"):
+                st.markdown(response)
+            # Add assistant response to chat history
+            st.session_state.messages.append({"role": "assistant", "content": response})
+            
         
 if __name__ == "__main__":
     main()
