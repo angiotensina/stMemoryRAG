@@ -3,6 +3,8 @@ from pymilvus import connections, db, CollectionSchema, FieldSchema, DataType, C
 import os
 from dotenv import load_dotenv, find_dotenv
 
+from embed_class import EmbeddingProcessor
+from parse_class import PDFParser
 
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
